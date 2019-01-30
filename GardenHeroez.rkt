@@ -1,6 +1,7 @@
 #lang racket
 (require 2htdp/image)
 (require 2htdp/universe)
+(require rackunit)
 
 #|
 TYPES
@@ -16,7 +17,7 @@ A Screen is one of :
     - 'begin
     - 'instruction
     - 'plot
-    - 'garden
+    - 'field
     - 'win
     - 'lose
 |#
@@ -34,7 +35,7 @@ A Screen is one of :
 (define-struct field-screen [field select])
 
 ; A World is a (make-garden  FieldScreen PlotScreen SeedBank Screen Nat Bool Nat)
-(define-struct garden [field-grid plot-grid seed-bank screen-select player is-raining clock])
+(define-struct garden [field-grid plot-grid seed-bank screen-select player-loc is-raining clock])
 
 #|
 CONSTANTS
@@ -56,7 +57,9 @@ CONSTANTS
 (define SPAM-FOR-LIGHTNING #t)
 (define CLOCK-RATE .9)
 (define INITIAL-SEED-BANK (make-seed-bank (make-list 3 #f) 0))
-(define INITIAL-GARDEN (make-garden (make-list 16 #f) (make-list 9 #f) INITIAL-SEED-BANK 'start 0 #false 0))
+(define INITIAL-GARDEN (make-garden (make-list 16 #f) (make-list 9 #f) INITIAL-SEED-BANK 'begin 0 #false 0))
+(define SCENE-WIDTH 500)
+(define SCENE-HEIGHT 500)
 
 #|
 USEFUL FUNCTIONS
@@ -74,7 +77,7 @@ USEFUL FUNCTIONS
                  (garden-plot-grid world)
                  (garden-seed-bank world) 
                  (garden-screen-select world) 
-                 (garden-player world) 
+                 (garden-player-loc world) 
                  (garden-is-raining world) 
                  (add1 (garden-clock world)))))
 
@@ -85,7 +88,7 @@ USEFUL FUNCTIONS
                  (garden-plot-grid world)
                  (garden-seed-bank world) 
                  (garden-screen-select world)
-                 (let ([position (garden-player world)])
+                 (let ([position (garden-player-loc world)])
                    (cond
                      [(string=? dir UP) (if (or (= position 0) (= position 1) (= position 2))
                                             position
@@ -108,7 +111,7 @@ USEFUL FUNCTIONS
     (make-garden (garden-field-grid world)
                  (garden-seed-bank world) 
                  (garden-screen-select world)
-                 (let ([position (garden-player world)])
+                 (let ([position (garden-player-loc world)])
                    (cond
                      [(string=? dir UP) (if (or (= position 0) (= position 1) (= position 2) (= position 3))
                                             position
@@ -151,7 +154,7 @@ USEFUL FUNCTIONS
                  (plant-plant (seed-to-plant (garden-seed-bank world)) (garden-plot-grid world))
                  (remove-seed (garden-seed-bank world))
                  (garden-screen-select world) 
-                 (garden-player world) 
+                 (garden-player-loc world) 
                  (garden-is-raining world) 
                  (garden-clock world))))
 
@@ -162,7 +165,7 @@ USEFUL FUNCTIONS
                  (plant-plant (seed-to-plant (garden-seed-bank world)) (garden-plot-grid world))
                  (remove-seed (garden-seed-bank world))
                  (garden-screen-select world) 
-                 (garden-player world) 
+                 (garden-player-loc world) 
                  (garden-is-raining world) 
                  (garden-clock world))))
 
@@ -178,7 +181,7 @@ SCREEN-SETTERS
                  (garden-plot-grid world) 
                  (garden-seed-bank world) 
                  'field
-                 (garden-player world) 
+                 (garden-player-loc world) 
                  (garden-is-raining world) 
                  (garden-clock world))))
 
@@ -189,7 +192,7 @@ SCREEN-SETTERS
                  (garden-plot-grid world) 
                  (garden-seed-bank world) 
                  'plot
-                 (garden-player world) 
+                 (garden-player-loc world) 
                  (garden-is-raining world) 
                  (garden-clock world))))
 
@@ -204,6 +207,14 @@ TICK-HANDLING
 #|
 KEY-HANDLERS
 |#
+; begin-key-handler; Garden KayStrokez -> Garden
+(define begin-key-handler
+  (λ (world input)
+    (if (valid-key? input)
+        (struct-copy garden world [screen-select 'instruction])
+        world
+        )))
+
 
 ; instruction-key-handler : Garden KayStrokez -> Garden
 (define instruction-key-handler
@@ -253,17 +264,74 @@ KEY-HANDLERS
   (λ (world input) 
     (if (valid-key? input)
         (cond
-          [(symbol=? (garden-screen-select world) 'begin) world]
+          [(symbol=? (garden-screen-select world) 'begin) (begin-key-handler world input)]
           [(symbol=? (garden-screen-select world) 'instruction) (instruction-key-handler world input)]
           [(symbol=? (garden-screen-select world) 'plot) (plot-key-handler world input)]
           [(symbol=? (garden-screen-select world) 'field) (field-key-handler world input)]
           [(symbol=? (garden-screen-select world) 'win) world]
-          [(symbol=? (garden-screen-select world) 'lose) world])
+          [(symbol=? (garden-screen-select world) 'lose) world]
+          [world])
         world)))
 
-; draw : Garden -> Image
+
+;copied for reference
+; A World is a (make-garden  FieldScreen PlotScreen SeedBank Screen          Nat   Bool       Nat)
+;(define-struct       garden [field-grid plot-grid seed-bank screen-select player-loc is-raining clock]
+;(define SCREEN-SET '(begin instruction plot garden win lose))
+
+;;;;;; GRAPHICS ;;;;;;
+
+; draw : Garden -> Scene
 (define draw
-  (λ (world) empty-image))
+  (λ (world)
+    (cond
+      [(symbol=? (garden-screen-select world) 'begin) (draw-begin)]
+      [(symbol=? (garden-screen-select world) 'instruction) (draw-instructions)]
+      [(symbol=? (garden-screen-select world) 'plot) (draw-plot world)]
+      [(symbol=? (garden-screen-select world) 'field) (draw-field world)]
+      [(symbol=? (garden-screen-select world) 'win) (draw-win world)]
+      [(symbol=? (garden-screen-select world) 'lose) (draw-lose world)]
+      [(empty-scene SCENE-WIDTH SCENE-HEIGHT)]
+      ))) ;@TODO implement graphics
+
+; draw-begin : None -> Scene
+(define draw-begin (λ ()
+                     (overlay (text "Welcome to GardenHeroez!" 24 "black")
+                     (empty-scene SCENE-WIDTH SCENE-HEIGHT))
+                     ))
+
+; draw-instructions : None -> Scene
+(define draw-instructions (λ ()
+                     (text "Here are the instructions for GardenHeroez!" 24 "purple")
+                     
+                     ))
+
+; draw-field : Garden -> Scene
+(define draw-field (λ (world)
+                     (overlay (text "Here is the field!" 24 "purple")
+                     (empty-scene SCENE-WIDTH SCENE-HEIGHT))
+                     
+                     ))
+
+; draw-field : Garden -> Scene
+(define draw-plot (λ (world)
+                    (overlay (text "Here is the plot!" 24 "red")
+                     (empty-scene SCENE-WIDTH SCENE-HEIGHT))
+                    ))
+
+; draw-win : Garden -> Scene
+(define draw-win (λ (world)
+                   (overlay (text "u won!" 24 "blue")
+                     (empty-scene SCENE-WIDTH SCENE-HEIGHT))))
+                    
+
+; draw-lose : Garden -> Scene
+(define draw-lose (λ (world)
+                   (overlay (text "u lost!" 24 "green")
+                     (empty-scene SCENE-WIDTH SCENE-HEIGHT))))
+
+
+;;;;;;; BIG BANG! ;;;;;;;
 
 ; game-over? : Garden -> Bool
 (define game-over?
@@ -276,3 +344,10 @@ KEY-HANDLERS
               [on-key key-handler]
               [to-draw draw]
               [stop-when game-over?])))
+
+
+;;;;; TESTS ;;;;;
+
+(check-equal? (garden-screen-select (key-handler INITIAL-GARDEN SWITCH-SCREEN)) 'instruction)
+(check-equal? (garden-screen-select (key-handler (key-handler INITIAL-GARDEN SWITCH-SCREEN) SWITCH-SCREEN)) 'field)
+(main)
